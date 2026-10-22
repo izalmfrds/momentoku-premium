@@ -11,24 +11,22 @@ const cards = [
   { title: 'Cerita kita', category: 'WEDDING', image: '/cards/wedding.jpg', alt: 'Pasangan merayakan pernikahan di luar ruangan', color: '#bd835f' },
   { title: 'Another year', category: 'BIRTHDAY', image: '/cards/birthday.jpg', alt: 'Perayaan ulang tahun dengan lilin dan dekorasi', color: '#e6868a' },
   { title: 'Go somewhere', category: 'TRAVEL', image: '/cards/travel.jpg', alt: 'Pemandangan perjalanan di alam terbuka', color: '#6897a6' },
-  { title: 'Momen kita', category: 'SPECIAL MOMENTS', image: '/cards/family.jpg', alt: 'Keluarga menikmati waktu bersama', color: '#a7856e' },
   { title: 'Feel the beat', category: 'MUSIC', image: '/cards/music.jpg', alt: 'Suasana konser musik dengan cahaya panggung', color: '#674f80' },
   { title: 'The next chapter', category: 'GRADUATION', image: '/cards/graduation.jpg', alt: 'Teman-teman merayakan kelulusan', color: '#849968' },
-  { title: 'Make it happen', category: 'EVENTS', image: '/cards/corporate.jpg', alt: 'Pertemuan dan acara profesional', color: '#6f8196' },
 ];
 
 const fan = [
-  { x: -3, y: 64, r: -14, z: 1 },
-  { x: -2, y: 29, r: -10, z: 2 },
-  { x: -1, y: 8, r: -6, z: 3 },
-  { x: 0, y: 0, r: 0, z: 7 },
-  { x: 1, y: 8, r: 6, z: 3 },
-  { x: 2, y: 29, r: 10, z: 2 },
-  { x: 3, y: 64, r: 14, z: 1 },
+  { x: -2, y: 35, r: -12, z: 1 },
+  { x: -1, y: 9, r: -6, z: 2 },
+  { x: 0, y: 0, r: 0, z: 5 },
+  { x: 1, y: 9, r: 6, z: 2 },
+  { x: 2, y: 35, r: 12, z: 1 },
 ];
 
 export default function Hero() {
   const heroRef = useRef<HTMLElement>(null);
+  const storyRef = useRef<HTMLDivElement>(null);
+  const sectionRef = useRef<HTMLElement>(null);
   const fanRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
   const floatRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -39,13 +37,15 @@ export default function Hero() {
     gsap.registerPlugin(ScrollTrigger);
     const hero = heroRef.current;
     const fanEl = fanRef.current;
-    if (!hero || !fanEl) return;
+    const story = storyRef.current;
+    const section = sectionRef.current;
+    if (!hero || !fanEl || !story || !section) return;
     const cardEls = cardRefs.current.filter((el): el is HTMLDivElement => Boolean(el));
     const floatEls = floatRefs.current.filter((el): el is HTMLDivElement => Boolean(el));
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const isMobile = () => window.innerWidth < 768;
     const positions = () => {
-      const step = isMobile() ? Math.min(window.innerWidth * 0.16, 64) : Math.min(window.innerWidth * 0.115, 171);
+      const step = isMobile() ? Math.min(window.innerWidth * 0.19, 70) : Math.min(window.innerWidth * 0.14, 190);
       return fan.map((p) => ({ x: p.x * step, y: p.y * (isMobile() ? 0.55 : 1), rotation: p.r * (isMobile() ? 0.8 : 1) }));
     };
     const visible = () => cardEls.forEach((el, i) => {
@@ -64,25 +64,27 @@ export default function Hero() {
       const tl = gsap.timeline({ defaults: { ease: 'power3.out' }, onComplete: () => {
         readyRef.current = true;
         floatEls.forEach((el, i) => gsap.to(el, { y: i % 2 ? -5 : 5, duration: 2.8 + i * 0.27, ease: 'sine.inOut', yoyo: true, repeat: -1, delay: i * 0.14 }));
-        ScrollTrigger.create({
-          trigger: hero,
-          start: 'top top',
-          end: 'bottom top',
-          scrub: 0.8,
-          animation: gsap.timeline().to('.hero-content', { y: -42, ease: 'none' }, 0).to(fanEl, { y: -65, scale: 0.96, ease: 'none' }, 0).to('.hero-decoration', { opacity: 0, ease: 'none' }, 0),
-        });
+        ScrollTrigger.refresh();
       } });
       tl.addLabel('initial').to({}, { duration: 0.3 });
-      tl.addLabel('firstCard').to(cardEls[3], { x: 0, y: 0, opacity: 1, rotation: 0, scale: 1, duration: 0.85 }, 'firstCard');
+      tl.addLabel('firstCard').to(cardEls[2], { x: 0, y: 0, opacity: 1, rotation: 0, scale: 1, duration: 0.85 }, 'firstCard');
       tl.addLabel('headline', 'firstCard+=0.42').to('.hero-line', { y: 0, opacity: 1, duration: 0.65, stagger: 0.12 }, 'headline');
       tl.addLabel('description', 'headline+=0.4').to('.hero-description', { y: 0, opacity: 1, duration: 0.5 }, 'description').to('.hero-cta', { y: 0, opacity: 1, duration: 0.5, stagger: 0.13 }, 'description+=0.12');
-      const order = [2, 4, 1, 5, 0, 6];
+      const order = [1, 3, 0, 4];
       tl.addLabel('fanSpread', 'description+=0.35');
       order.forEach((index, n) => {
         tl.to(cardEls[index], { ...positions()[index], opacity: 1, scale: 1, duration: 1.05, ease: 'power3.out' }, `fanSpread+=${n * 0.13}`);
       });
       tl.addLabel('decorations', 'fanSpread+=1.05').to('.hero-decoration', { y: 0, opacity: 1, duration: 0.55, stagger: 0.11 }, 'decorations');
       tl.addLabel('completed');
+      const scroll = gsap.timeline({ defaults: { ease: 'none' }, scrollTrigger: { trigger: story, start: 'top top', end: '+=260%', scrub: 1, pin: true, invalidateOnRefresh: true, onUpdate: (self) => { story.classList.toggle('is-scrolling', self.progress > 0.01); } } });
+      scroll.to('.hero-content, .hero-decoration, .scroll-cue', { opacity: 0, duration: 0.2 }, 0);
+      cardEls.forEach((el, i) => scroll.to(el, { x: 0, y: i * -5, rotation: 0, duration: 0.3 }, 0));
+      scroll.to(fanEl, { y: () => section.getBoundingClientRect().top - fanEl.getBoundingClientRect().top + window.innerHeight * 0.48, duration: 0.35 }, 0.3);
+      scroll.to(section, { opacity: 1, duration: 0.35 }, 0.35);
+      scroll.to(fanEl, { x: () => isMobile() ? 0 : window.innerWidth * 0.22, y: () => section.getBoundingClientRect().top - fanEl.getBoundingClientRect().top + window.innerHeight * (isMobile() ? 0.38 : 0.45), duration: 0.22 }, 0.56);
+      cardEls.forEach((el, i) => scroll.to(el, { x: () => (i - 2) * (isMobile() ? 55 : 105), y: () => Math.abs(i - 2) * 18, rotation: (i - 2) * 7, opacity: i === 0 || i === 2 || i === 4 ? 1 : 0, duration: 0.2 }, 0.78));
+      scroll.fromTo('.section-two-content > *', { opacity: 0, y: 25 }, { opacity: 1, y: 0, stagger: 0.04, duration: 0.12 }, 0.88);
       const onResize = () => { if (readyRef.current) visible(); };
       window.addEventListener('resize', onResize);
       return () => window.removeEventListener('resize', onResize);
@@ -91,7 +93,7 @@ export default function Hero() {
   }, []);
 
   const onEnter = (index: number) => {
-    if (!readyRef.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    if (!readyRef.current || storyRef.current?.classList.contains('is-scrolling') || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const target = hoverRefs.current[index];
     if (!target) return;
     cardRefs.current[index]?.style.setProperty('z-index', '20');
@@ -105,7 +107,7 @@ export default function Hero() {
     hoverRefs.current.forEach((el) => gsap.to(el, { opacity: 1, duration: 0.35, overwrite: 'auto' }));
   };
 
-  return <main>
+  return <main><div className="story" ref={storyRef}>
     <section className="hero" ref={heroRef} aria-labelledby="hero-title">
       <header className="site-header">
         <Link href="/" className="brand" aria-label="Momentoku, beranda"><span className="brand-mark"><span /><span /><span /><span /></span><span>momentoku<span className="brand-dot">.</span></span></Link>
@@ -129,14 +131,15 @@ export default function Hero() {
         <div className="hero-decoration chip chip-right">#ceritakita <span>✳</span></div>
         <div className="fan" ref={fanRef} aria-label="Ragam momen yang dapat dirayakan dengan Momentoku">
           {cards.map((card, i) => <div key={card.category} className={`fan-card card-${i}`} style={{ zIndex: fan[i].z }} ref={(el) => { cardRefs.current[i] = el; }} onMouseEnter={() => onEnter(i)} onMouseLeave={() => onLeave(i)}>
-            <div className="float-card" ref={(el) => { floatRefs.current[i] = el; }}><div className="card-face" ref={(el) => { hoverRefs.current[i] = el; }}><Image src={card.image} alt={card.alt} fill sizes="(max-width: 767px) 145px, (max-width: 1023px) 175px, 230px" priority={i === 3} className="card-image" /><div className="card-shade" /><div className="card-top"><span className="card-emblem">m<span>.</span></span><span>0{i + 1} / 07</span></div><div className="card-caption"><span className="card-category">{card.category}</span><strong>{card.title}</strong><span className="card-rule" style={{ backgroundColor: card.color }} /></div></div></div>
+            <div className="float-card" ref={(el) => { floatRefs.current[i] = el; }}><div className="card-face" ref={(el) => { hoverRefs.current[i] = el; }}><Image src={card.image} alt={card.alt} fill sizes="(max-width: 767px) 145px, (max-width: 1023px) 175px, 230px" priority={i === 2} className="card-image" /><div className="card-shade" /><div className="card-top"><span className="card-emblem">m<span>.</span></span><span>0{i + 1} / 05</span></div><div className="card-caption"><span className="card-category">{card.category}</span><strong>{card.title}</strong><span className="card-rule" style={{ backgroundColor: card.color }} /></div></div></div>
           </div>)}
         </div>
       </div>
       <div className="scroll-cue"><Mouse size={20} strokeWidth={1.25} /><span>SCROLL TO EXPLORE</span></div>
       <div className="hero-bottom"><span>CAPTURE THE FEELING</span><span>01 — EVERY MOMENT MATTERS</span></div>
     </section>
-  </main>;
+    <section className="section-two" ref={sectionRef} aria-labelledby="section-two-title"><div className="section-two-content"><p className="section-two-eyebrow">● &nbsp; TIGA PRODUK, SATU PENGALAMAN LENGKAP</p><h2 id="section-two-title">Rayakan setiap momen dengan <span>lebih mudah.</span></h2><p>Momentoku menghadirkan tiga produk yang saling terhubung untuk membuat setiap acara menjadi lebih berkesan, praktis, dan penuh makna.</p><a href="mailto:halo@momentoku.id?subject=Fitur%20Momentoku">Lihat Semua Fitur <ArrowRight size={17} /></a></div></section>
+  </div></main>;
 }
 
 function ArrowUpRightIcon() { return <ArrowRight size={16} strokeWidth={1.8} className="header-arrow" />; }
