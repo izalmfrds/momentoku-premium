@@ -34,6 +34,7 @@ export default function Hero() {
   const floatRefs = useRef<(HTMLDivElement | null)[]>([]);
   const hoverRefs = useRef<(HTMLDivElement | null)[]>([]);
   const readyRef = useRef(false);
+  const scrollingRef = useRef(false);
 
   useEffect(() => {
     gsap.registerPlugin(ScrollTrigger);
@@ -44,33 +45,44 @@ export default function Hero() {
     const floatEls = floatRefs.current.filter((el): el is HTMLDivElement => Boolean(el));
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const isMobile = () => window.innerWidth < 768;
-    const positions = () => {
+    const heroPositions = () => {
       const step = isMobile() ? Math.min(window.innerWidth * 0.16, 64) : Math.min(window.innerWidth * 0.115, 171);
       return fan.map((p) => ({ x: p.x * step, y: p.y * (isMobile() ? 0.55 : 1), rotation: p.r * (isMobile() ? 0.8 : 1) }));
     };
+    const sectionPositions = () => {
+      const mobile = isMobile();
+      const step = mobile ? Math.min(window.innerWidth * 0.1, 40) : Math.min(window.innerWidth * 0.068, 98);
+      const y = mobile ? [38, 18, 6, 0, 6, 18, 38] : [56, 28, 9, 0, 9, 28, 56];
+      const rotation = mobile ? [-10, -7, -3, 0, 3, 7, 10] : [-13, -9, -5, 0, 5, 9, 13];
+      return fan.map((p, i) => ({ x: p.x * step, y: y[i], rotation: rotation[i] }));
+    };
+    const sectionFanX = () => {
+      if (isMobile()) return 0;
+      const rightEdge = sectionPositions()[6].x + (cardEls[6]?.offsetWidth ?? 190) / 2 + 64;
+      const targetCenter = Math.min(window.innerWidth * 0.74, window.innerWidth - rightEdge);
+      return targetCenter - window.innerWidth / 2;
+    };
     const visible = () => cardEls.forEach((el, i) => {
-      gsap.set(el, { ...positions()[i], opacity: 1, scale: 1 });
+      gsap.set(el, { ...heroPositions()[i], opacity: 1, scale: 1 });
     });
     const ctx = gsap.context(() => {
       if (reduced) {
         gsap.set(['.hero-line', '.hero-description', '.hero-cta', '.hero-decoration'], { opacity: 1, y: 0 });
         visible();
+        gsap.set('.section-two', { opacity: 1 });
+        gsap.set('.section-two-copy > *', { opacity: 1, y: 0 });
+        hero.classList.add('is-reduced');
         readyRef.current = true;
         return;
       }
       const initialDrop = window.innerHeight * (isMobile() ? 0.7 : 0.85);
       gsap.set(cardEls, { x: 0, y: initialDrop, opacity: 0, rotation: -8, scale: 0.85, transformOrigin: '50% 85%' });
       gsap.set(['.hero-line', '.hero-description', '.hero-cta', '.hero-decoration'], { opacity: 0, y: 25 });
+      gsap.set('.section-two', { opacity: 0 });
+      gsap.set('.section-two-copy > *', { opacity: 0, y: 28 });
       const tl = gsap.timeline({ defaults: { ease: 'power3.out' }, onComplete: () => {
         readyRef.current = true;
         floatEls.forEach((el, i) => gsap.to(el, { y: i % 2 ? -5 : 5, duration: 2.8 + i * 0.27, ease: 'sine.inOut', yoyo: true, repeat: -1, delay: i * 0.14 }));
-        ScrollTrigger.create({
-          trigger: hero,
-          start: 'top top',
-          end: 'bottom top',
-          scrub: 0.8,
-          animation: gsap.timeline().to('.hero-content', { y: -42, ease: 'none' }, 0).to(fanEl, { y: -65, scale: 0.96, ease: 'none' }, 0).to('.hero-decoration', { opacity: 0, ease: 'none' }, 0),
-        });
       } });
       tl.addLabel('initial').to({}, { duration: 0.3 });
       tl.addLabel('firstCard').to(cardEls[3], { x: 0, y: 0, opacity: 1, rotation: 0, scale: 1, duration: 0.85 }, 'firstCard');
@@ -79,19 +91,70 @@ export default function Hero() {
       const order = [2, 4, 1, 5, 0, 6];
       tl.addLabel('fanSpread', 'description+=0.35');
       order.forEach((index, n) => {
-        tl.to(cardEls[index], { ...positions()[index], opacity: 1, scale: 1, duration: 1.05, ease: 'power3.out' }, `fanSpread+=${n * 0.13}`);
+        tl.to(cardEls[index], { ...heroPositions()[index], opacity: 1, scale: 1, duration: 1.05, ease: 'power3.out' }, `fanSpread+=${n * 0.13}`);
       });
       tl.addLabel('decorations', 'fanSpread+=1.05').to('.hero-decoration', { y: 0, opacity: 1, duration: 0.55, stagger: 0.11 }, 'decorations');
       tl.addLabel('completed');
-      const onResize = () => { if (readyRef.current) visible(); };
-      window.addEventListener('resize', onResize);
-      return () => window.removeEventListener('resize', onResize);
+
+      const stackPositions = cardEls.map((_, i) => ({ x: (i - 3) * 2, y: -Math.abs(i - 3) * 5, rotation: 0, scale: 0.96 }));
+      const master = gsap.timeline({
+        defaults: { ease: 'none' },
+        scrollTrigger: {
+          trigger: hero,
+          start: 'top top',
+          end: '+=300%',
+          scrub: 1,
+          pin: true,
+          anticipatePin: 1,
+          invalidateOnRefresh: true,
+          onUpdate: (self) => {
+            const active = self.progress > 0.002;
+            if (active !== scrollingRef.current) {
+              scrollingRef.current = active;
+              if (active) {
+                gsap.killTweensOf(floatEls);
+                gsap.to(floatEls, { y: 0, duration: 0.25, overwrite: true });
+                gsap.to(hoverRefs.current, { y: 0, scale: 1, opacity: 1, duration: 0.2, overwrite: true });
+              }
+            }
+          },
+        },
+      });
+
+      master.addLabel('collapse', 0);
+      cardEls.forEach((el, i) => master.fromTo(el, {
+        x: () => heroPositions()[i].x,
+        y: () => heroPositions()[i].y,
+        rotation: () => heroPositions()[i].rotation,
+        scale: 1,
+        opacity: 1,
+      }, { ...stackPositions[i], opacity: 1, duration: 0.18, immediateRender: false }, 'collapse'));
+      master.to(['.site-header', '.hero-content', '.hero-decoration', '.scroll-cue'], { opacity: 0, y: -34, duration: 0.18 }, 'collapse');
+      master.fromTo(fanEl, { x: 0, y: 0 }, { x: 0, y: () => window.innerHeight * 0.05, duration: 0.14, immediateRender: false }, 0.18);
+      master.to('.section-two', { opacity: 0.82, duration: 0.16 }, 0.32);
+      master.to(fanEl, { y: () => window.innerHeight * 0.2, duration: 0.16 }, 0.32);
+      master.to('.section-two', { opacity: 1, duration: 0.14 }, 0.48);
+      master.to(fanEl, {
+        x: sectionFanX,
+        y: () => isMobile() ? 0 : -window.innerHeight * (window.innerWidth < 1100 ? 0.12 : 0.17),
+        duration: 0.14,
+      }, 0.48);
+      cardEls.forEach((el, i) => master.to(el, {
+        x: () => sectionPositions()[i].x,
+        y: () => sectionPositions()[i].y,
+        rotation: () => sectionPositions()[i].rotation,
+        scale: 1,
+        duration: 0.16,
+      }, 0.62));
+      master.to(cardEls, { scale: 1, duration: 0.07, ease: 'power2.out' }, 0.78);
+      master.to('.section-two-copy > *', { opacity: 1, y: 0, duration: 0.045, stagger: 0.012, ease: 'power2.out' }, 0.85);
+      master.to({}, { duration: 0.05 }, 0.95);
     }, hero);
-    return () => { ctx.revert(); readyRef.current = false; };
+    return () => { ctx.revert(); hero.classList.remove('is-reduced'); readyRef.current = false; scrollingRef.current = false; };
   }, []);
 
   const onEnter = (index: number) => {
-    if (!readyRef.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    if (!readyRef.current || scrollingRef.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const target = hoverRefs.current[index];
     if (!target) return;
     cardRefs.current[index]?.style.setProperty('z-index', '20');
@@ -133,6 +196,16 @@ export default function Hero() {
           </div>)}
         </div>
       </div>
+      <section className="section-two" id="fitur" aria-labelledby="section-two-title">
+        <div className="section-two-copy">
+          <p className="section-two-eyebrow"><span />TIGA PRODUK, SATU PENGALAMAN LENGKAP</p>
+          <h2 id="section-two-title">Rayakan setiap<br />momen dengan<br /><span>lebih mudah.</span></h2>
+          <p className="section-two-description">Momentoku menghadirkan tiga produk yang saling terhubung untuk membuat setiap acara menjadi lebih berkesan, praktis, dan penuh makna.</p>
+          <a className="section-two-cta" href="#cara-kerja">Lihat Semua Fitur <ArrowRight size={17} strokeWidth={1.8} /></a>
+        </div>
+        <div className="section-two-accent accent-left" aria-hidden="true">⌁</div>
+        <div className="section-two-accent accent-right" aria-hidden="true">⌁</div>
+      </section>
       <div className="scroll-cue"><Mouse size={20} strokeWidth={1.25} /><span>SCROLL TO EXPLORE</span></div>
       <div className="hero-bottom"><span>CAPTURE THE FEELING</span><span>01 — EVERY MOMENT MATTERS</span></div>
     </section>
