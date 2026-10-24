@@ -78,7 +78,7 @@ export default function Hero() {
       tl.addLabel('decorations', 'fanSpread+=1.05').to('.hero-decoration', { y: 0, opacity: 1, duration: 0.55, stagger: 0.11 }, 'decorations');
       tl.addLabel('completed');
       const scroll = gsap.timeline({ paused: true, defaults: { ease: 'none' }, scrollTrigger: { trigger: story, start: 'top top', end: '+=260%', scrub: 1, pin: true, invalidateOnRefresh: true, onUpdate: (self) => { story.classList.toggle('is-scrolling', self.progress > 0.01); floatEls.forEach((el) => { if (self.progress > 0.01) gsap.set(el, { y: 0 }); }); } } });
-      scroll.to('.hero-content, .scroll-cue', { opacity: 0, duration: 0.2 }, 0);
+      scroll.to('.hero-content, .hero-decoration, .scroll-cue', { opacity: 0, duration: 0.2 }, 0);
       cardEls.forEach((el, i) => scroll.fromTo(el, { x: () => positions()[i].x, y: () => positions()[i].y, rotation: () => positions()[i].rotation }, { x: 0, y: -Math.abs(i - 2) * 5, rotation: 0, duration: 0.28, immediateRender: false }, 0.06));
       scroll.to(fanEl, { y: () => window.innerHeight * 0.38 - fanEl.getBoundingClientRect().top, duration: 0.28 }, 0.34);
       scroll.to(section, { opacity: 1, duration: 0.28 }, 0.36);
