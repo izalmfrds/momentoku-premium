@@ -31,6 +31,9 @@ export default function Hero() {
   const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
   const floatRefs = useRef<(HTMLDivElement | null)[]>([]);
   const hoverRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const sectionThreeRef = useRef<HTMLElement>(null);
+  const sectionThreeTransitionRef = useRef<HTMLDivElement>(null);
+  const trustedRef = useRef<HTMLElement>(null);
   const readyRef = useRef(false);
 
   useEffect(() => {
@@ -39,7 +42,8 @@ export default function Hero() {
     const fanEl = fanRef.current;
     const story = storyRef.current;
     const section = sectionRef.current;
-    if (!hero || !fanEl || !story || !section) return;
+    const sectionThreeTransition = sectionThreeTransitionRef.current;
+    if (!hero || !fanEl || !story || !section || !sectionThreeTransition) return;
     const cardEls = cardRefs.current.filter((el): el is HTMLDivElement => Boolean(el));
     const floatEls = floatRefs.current.filter((el): el is HTMLDivElement => Boolean(el));
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -86,11 +90,84 @@ export default function Hero() {
       scroll.to(fanEl, { x: () => isMobile() ? 0 : window.innerWidth * 0.22, duration: 0.18 }, 0.64);
       cardEls.forEach((el, i) => scroll.to(el, { x: () => (i - 2) * (isMobile() ? 55 : 105), y: () => Math.abs(i - 2) * 18, rotation: (i - 2) * 7, opacity: i === 0 || i === 2 || i === 4 ? 1 : 0, duration: 0.16 }, 0.82));
       scroll.fromTo('.section-two-content > *', { opacity: 0, y: 25 }, { opacity: 1, y: 0, stagger: 0.03, duration: 0.09 }, 0.93);
+      scroll.fromTo(sectionThreeTransition, {
+        y: 0,
+      }, {
+        // Release with the image frame's top edge at mid-viewport. The image
+        // offset includes Section 3's existing heading and spacing, so that
+        // content naturally enters before the visual reaches the threshold.
+        y: () => {
+          const imageFrame = sectionThreeRef.current?.querySelector<HTMLElement>('.s3-video-frame');
+          const imageOffset = imageFrame
+            ? imageFrame.getBoundingClientRect().top - sectionThreeTransition.getBoundingClientRect().top
+            : 0;
+          return -(window.innerHeight * 0.5 + Math.max(0, imageOffset));
+        },
+        duration: 0.2,
+        immediateRender: false,
+      }, 0.8);
       const onResize = () => { if (readyRef.current) visible(); };
       window.addEventListener('resize', onResize);
       return () => window.removeEventListener('resize', onResize);
     }, hero);
-    return () => { ctx.revert(); readyRef.current = false; };
+
+    // ── Section Three entrance & parallax ──
+    const s3 = sectionThreeRef.current;
+    const ctxThree = gsap.context(() => {
+      if (!s3) return;
+      const eyebrow = s3.querySelector<HTMLElement>('.s3-eyebrow');
+      const titleRow = s3.querySelector<HTMLElement>('.s3-title-row');
+      const videoWrap = s3.querySelector<HTMLElement>('.s3-video-wrap');
+      const videoImage = s3.querySelector<HTMLElement>('.s3-video-img');
+      if (!eyebrow || !titleRow || !videoWrap) return;
+
+      if (reduced) {
+        gsap.set([videoWrap, eyebrow, titleRow], { opacity: 1, y: 0, clipPath: 'inset(0% 0% 0% 0%)' });
+        return;
+      }
+
+      gsap.set(videoWrap, { opacity: 0, y: 120, scale: 0.94, transformOrigin: 'center bottom' });
+      gsap.set(eyebrow, { opacity: 0, y: 18 });
+      gsap.set(titleRow, { opacity: 0, y: 40 });
+      ScrollTrigger.create({
+        trigger: s3,
+        start: 'top 78%',
+        once: true,
+        onEnter: () => {
+          const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
+          tl.to(videoWrap, { opacity: 1, y: 0, scale: 1, duration: 1.05, ease: 'power2.out' });
+          tl.to(eyebrow, { opacity: 1, y: 0, duration: 0.5 }, '-=0.55');
+          tl.to(titleRow, { opacity: 1, y: 0, duration: 0.72 }, '-=0.35');
+        },
+      });
+
+      // subtle parallax on scroll
+      if (videoImage) gsap.to(videoImage, {
+        yPercent: -4,
+        ease: 'none',
+        scrollTrigger: { trigger: s3, start: 'top bottom', end: 'bottom top', scrub: 0.8, invalidateOnRefresh: true },
+      });
+    });
+
+    // ── Trusted-by section entrance ──
+    const trusted = trustedRef.current;
+    const ctxTrusted = gsap.context(() => {
+      if (!trusted) return;
+      const items = trusted.querySelectorAll<HTMLElement>('.trusted-eyebrow, .trusted-title, .trusted-description, .trusted-logos > *');
+      if (reduced) {
+        gsap.set(items, { opacity: 1, y: 0 });
+        return;
+      }
+      gsap.set(items, { opacity: 0, y: 22 });
+      ScrollTrigger.create({
+        trigger: trusted,
+        start: 'top 72%',
+        once: true,
+        onEnter: () => gsap.to(items, { opacity: 1, y: 0, duration: 0.65, stagger: 0.09, ease: 'power3.out' }),
+      });
+    });
+
+    return () => { ctx.revert(); ctxThree.revert(); ctxTrusted.revert(); readyRef.current = false; };
   }, []);
 
   const onEnter = (index: number) => {
@@ -140,7 +217,76 @@ export default function Hero() {
       <div className="hero-bottom"><span>CAPTURE THE FEELING</span><span>01 — EVERY MOMENT MATTERS</span></div>
     </section>
     <section className="section-two" ref={sectionRef} aria-labelledby="section-two-title"><div className="section-two-content"><p className="section-two-eyebrow">● &nbsp; TIGA PRODUK, SATU PENGALAMAN LENGKAP</p><h2 id="section-two-title">Rayakan setiap momen dengan <span>lebih mudah.</span></h2><p>Momentoku menghadirkan tiga produk yang saling terhubung untuk membuat setiap acara menjadi lebih berkesan, praktis, dan penuh makna.</p><a href="mailto:halo@momentoku.id?subject=Fitur%20Momentoku">Lihat Semua Fitur <ArrowRight size={17} /></a></div></section>
-  </div></main>;
+  </div>
+  <div className="section-three-transition" ref={sectionThreeTransitionRef}>
+  <section className="section-three" ref={sectionThreeRef} aria-labelledby="s3-title">
+    <div className="s3-inner">
+
+      {/* ── Header row ── */}
+      <p className="s3-eyebrow">DIABADIKAN BERSAMA MOMENTOKU</p>
+      <div className="s3-title-row">
+        <h2 id="s3-title" className="s3-heading">Rayakan setiap<br />momen spesial.</h2>
+        <span className="s3-handle" aria-hidden="true">@momentoku</span>
+      </div>
+
+      {/* ── Full-width image card ── */}
+      <div className="s3-video-wrap">
+        <div className="s3-video-frame" style={{ position: 'relative' }}>
+          <Image src="/cards/travel.jpg" alt="Momen perjalanan bersama Momentoku" fill sizes="100vw" priority className="s3-video-img" />
+          <div className="s3-video-shade" />
+
+          {/* Logo mark top-left */}
+          <div className="s3-mark" aria-hidden="true">
+            <span className="s3-mark-a" />
+            <span className="s3-mark-b" />
+          </div>
+
+          {/* Dots top-right */}
+          <div className="s3-dots-top" aria-hidden="true">
+            <span className="s3-dot s3-dot-active" />
+            <span className="s3-dot" />
+            <span className="s3-dot" />
+          </div>
+
+          {/* Play button center */}
+          <button className="s3-play" aria-label="Tonton momen" type="button">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="26" height="26" aria-hidden="true"><path d="M8 5.14v14l11-7-11-7z"/></svg>
+          </button>
+
+          {/* Bottom bar: Watch left, arrows right */}
+          <div className="s3-bar">
+            <a className="s3-watch" href="mailto:halo@momentoku.id?subject=Lihat%20Momen">Watch</a>
+            <div className="s3-arrows">
+              <button type="button" aria-label="Sebelumnya" className="s3-arrow">
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16"><path d="M13 16l-6-6 6-6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              </button>
+              <button type="button" aria-label="Berikutnya" className="s3-arrow">
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16"><path d="M7 4l6 6-6 6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+  </div>
+  <section className="trusted-section" ref={trustedRef} aria-labelledby="trusted-title">
+    <div className="trusted-inner">
+      <p className="trusted-eyebrow">DIPERCAYA UNTUK MOMEN BERARTI</p>
+      <h2 id="trusted-title" className="trusted-title">Trusted by the best.</h2>
+      <p className="trusted-description">Kami membantu pasangan, keluarga, dan komunitas merayakan cerita mereka dengan lebih berkesan.</p>
+      <div className="trusted-logos" aria-label="Komunitas pengguna Momentoku">
+        <span className="trusted-logo logo-serif">Momen<span>kita</span></span>
+        <span className="trusted-logo logo-script">ruang cerita</span>
+        <span className="trusted-logo logo-spaced">CERITA<span>·</span>KITA</span>
+        <span className="trusted-logo logo-mono"><span className="logo-mark">✳</span> ruangtemu</span>
+        <span className="trusted-logo logo-serif">Hari<span>Bahagia</span></span>
+      </div>
+      <div className="trusted-foot"><span>MADE FOR EVERY CHAPTER</span><span>05 — CERITA YANG TERUS BERLANJUT</span></div>
+    </div>
+  </section>
+  </main>;
 }
 
 function ArrowUpRightIcon() { return <ArrowRight size={16} strokeWidth={1.8} className="header-arrow" />; }
