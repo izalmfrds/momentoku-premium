@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { ArrowDownRight, ArrowRight, Menu, Mouse, Sparkles } from 'lucide-react';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import { Observer } from 'gsap/Observer';
+import { ScrollToPlugin } from 'gsap/ScrollToPlugin';
 
 const cards = [
   { title: 'Cerita kita', category: 'WEDDING', image: '/cards/wedding.jpg', alt: 'Pasangan merayakan pernikahan di luar ruangan', color: '#bd835f' },
@@ -36,8 +38,16 @@ export default function Hero() {
   const trustedRef = useRef<HTMLElement>(null);
   const readyRef = useRef(false);
 
-  useEffect(() => {
-    gsap.registerPlugin(ScrollTrigger);
+  useLayoutEffect(() => {
+    gsap.registerPlugin(ScrollTrigger, Observer, ScrollToPlugin);
+    const previousScrollRestoration = window.history.scrollRestoration;
+    const resetScrollToStart = () => {
+      window.history.scrollRestoration = 'manual';
+      ScrollTrigger.clearScrollMemory('manual');
+      window.scrollTo(0, 0);
+    };
+    resetScrollToStart();
+    window.addEventListener('pageshow', resetScrollToStart);
     const hero = heroRef.current;
     const fanEl = fanRef.current;
     const story = storyRef.current;
@@ -46,28 +56,235 @@ export default function Hero() {
     if (!hero || !fanEl || !story || !section || !sectionThreeTransition) return;
     const cardEls = cardRefs.current.filter((el): el is HTMLDivElement => Boolean(el));
     const floatEls = floatRefs.current.filter((el): el is HTMLDivElement => Boolean(el));
+    const sectionItems = Array.from(section.querySelectorAll<HTMLElement>('.section-two-content > *'));
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const isMobile = () => window.innerWidth < 768;
-    const positions = () => {
-      const step = isMobile() ? Math.min(window.innerWidth * 0.19, 70) : Math.min(window.innerWidth * 0.14, 190);
+    const fanPositions = () => {
+      const step = isMobile() ? Math.min(window.innerWidth * 0.17, 70) : Math.min(window.innerWidth * 0.14, 190);
       return fan.map((p) => ({ x: p.x * step, y: p.y * (isMobile() ? 0.55 : 1), rotation: p.r * (isMobile() ? 0.8 : 1) }));
     };
-    const visible = () => cardEls.forEach((el, i) => {
-      gsap.set(el, { ...positions()[i], opacity: 1, scale: 1 });
-    });
+    const stage = () => {
+      const currentY = Number(gsap.getProperty(fanEl, 'y')) || 0;
+      const baseTop = fanEl.getBoundingClientRect().top - currentY;
+      return {
+        x: isMobile() ? 0 : window.innerWidth * 0.22,
+        y: window.innerHeight * (isMobile() ? 0.3 : 0.38) - baseTop,
+        spread: isMobile() ? Math.min(window.innerWidth * 0.165, 70) : Math.min(window.innerWidth * 0.075, 108),
+      };
+    };
+    let state = 0;
+    let transitioning = false;
+    let pinActive = false;
+    let introReady = false;
+    let parallaxReleased = false;
+    let sectionThreeRevealed = false;
+    let revealSectionThree = () => {};
+    let activeTimeline: gsap.core.Timeline | null = null;
+    let floatTweens: gsap.core.Tween[] = [];
+
+    const stopFloatMotion = () => {
+      floatTweens.forEach((tween) => tween.kill());
+      floatTweens = [];
+      gsap.set(floatEls, { y: 0 });
+    };
+    const startFloatMotion = () => {
+      stopFloatMotion();
+      floatTweens = floatEls.map((el, i) => gsap.to(el, {
+        y: i % 2 ? -5 : 5,
+        duration: 2.8 + i * 0.27,
+        ease: 'sine.inOut',
+        yoyo: true,
+        repeat: -1,
+        delay: i * 0.14,
+      }));
+    };
+
+    let observer: Observer | null = null;
+    let pinTrigger: ScrollTrigger | null = null;
+    const enableObserver = () => {
+      if (pinActive && introReady && !reduced) observer?.enable();
+    };
+    const sectionThreeOffset = () => {
+      const imageFrame = sectionThreeRef.current?.querySelector<HTMLElement>('.s3-video-frame');
+      const imageOffset = imageFrame
+        ? imageFrame.getBoundingClientRect().top - sectionThreeTransition.getBoundingClientRect().top
+        : 0;
+      return window.innerHeight * 0.5 + Math.max(0, imageOffset);
+    };
+    const releasePin = (direction: 1 | -1) => {
+      if (direction < 0) {
+        observer?.disable();
+        pinActive = false;
+        story.classList.remove('is-scrolling');
+        window.scrollTo({ top: Math.max(0, (pinTrigger?.start ?? 0) - 2), behavior: 'smooth' });
+        return;
+      }
+
+      transitioning = true;
+      activeTimeline?.kill();
+      revealSectionThree();
+      activeTimeline = gsap.timeline({
+        defaults: { ease: 'power2.inOut', overwrite: 'auto' },
+        onUpdate: () => ScrollTrigger.update(),
+        onComplete: () => {
+          transitioning = false;
+          pinActive = false;
+          parallaxReleased = true;
+          observer?.disable();
+          story.classList.remove('is-scrolling');
+          ScrollTrigger.refresh();
+        },
+      })
+        .to(window, {
+          scrollTo: { y: (pinTrigger?.end ?? window.scrollY) + 2, autoKill: false },
+          duration: 1.05,
+        }, 0)
+        .to(sectionThreeTransition, {
+          y: () => -sectionThreeOffset(),
+          marginBottom: () => -sectionThreeOffset(),
+          duration: 1.05,
+        }, 0);
+    };
+
+    const setImmediateState = (nextState: number) => {
+      const positions = fanPositions();
+      const currentStage = stage();
+      gsap.set(section, { opacity: nextState === 2 ? 1 : 0 });
+      gsap.set(sectionItems, { opacity: nextState === 2 ? 1 : 0, y: 0 });
+      gsap.set(['.hero-content', '.scroll-cue', '.hero-decoration'], {
+        opacity: nextState === 0 ? 1 : 0,
+        y: 0,
+      });
+      if (nextState === 0) {
+        gsap.set(fanEl, { x: 0, y: 0 });
+        cardEls.forEach((el, i) => gsap.set(el, { ...positions[i], opacity: 1, scale: 1 }));
+      } else if (nextState === 1) {
+        gsap.set(fanEl, { x: 0, y: currentStage.y });
+        cardEls.forEach((el, i) => gsap.set(el, {
+          x: 0,
+          y: i === 2 ? 0 : 34,
+          rotation: 0,
+          opacity: i === 2 ? 1 : 0,
+          scale: i === 2 ? 1.04 : 0.72,
+        }));
+      } else {
+        gsap.set(fanEl, { x: currentStage.x, y: currentStage.y });
+        cardEls.forEach((el, i) => gsap.set(el, {
+          x: (i - 2) * currentStage.spread,
+          y: Math.abs(i - 2) * (isMobile() ? 10 : 18),
+          rotation: (i - 2) * (isMobile() ? 5 : 7),
+          opacity: i === 0 || i === 2 || i === 4 ? 1 : 0,
+          scale: 1,
+        }));
+      }
+      story.classList.toggle('is-scrolling', nextState !== 0);
+    };
+
+    const transitionTo = (nextState: number) => {
+      if (transitioning || nextState === state || nextState < 0 || nextState > 2) return;
+      transitioning = true;
+      stopFloatMotion();
+      story.classList.add('is-scrolling');
+      const positions = fanPositions();
+      const currentStage = stage();
+      activeTimeline?.kill();
+      const tl = gsap.timeline({
+        defaults: { ease: 'power3.inOut', overwrite: 'auto' },
+        onComplete: () => {
+          state = nextState;
+          transitioning = false;
+          if (state === 0) {
+            story.classList.remove('is-scrolling');
+            startFloatMotion();
+          }
+          enableObserver();
+        },
+      });
+      activeTimeline = tl;
+
+      if (state === 0 && nextState === 1) {
+        tl.to(['.hero-content', '.scroll-cue', '.hero-decoration'], { opacity: 0, y: -12, duration: 0.42 }, 0)
+          .to(fanEl, { x: 0, y: currentStage.y, duration: 0.65 }, 0)
+          .to(cardEls, {
+            x: 0,
+            y: (i) => i === 2 ? 0 : 34,
+            rotation: 0,
+            opacity: (i) => i === 2 ? 1 : 0,
+            scale: (i) => i === 2 ? 1.04 : 0.72,
+            duration: 0.65,
+            stagger: { each: 0.05, from: 'edges' },
+            transformOrigin: 'center center',
+          }, 0);
+      } else if (state === 1 && nextState === 2) {
+        gsap.set(section, { opacity: 1 });
+        tl.to(fanEl, { x: currentStage.x, duration: 0.7 }, 0)
+          .to(cardEls, {
+            x: (i) => (i - 2) * currentStage.spread,
+            y: (i) => Math.abs(i - 2) * (isMobile() ? 10 : 18),
+            rotation: (i) => (i - 2) * (isMobile() ? 5 : 7),
+            opacity: (i) => i === 0 || i === 2 || i === 4 ? 1 : 0,
+            scale: 1,
+            duration: 0.56,
+            stagger: { each: 0.07, from: 'center' },
+            transformOrigin: 'center center',
+          }, 0)
+          .fromTo(sectionItems, { opacity: 0, y: 22 }, {
+            opacity: 1,
+            y: 0,
+            duration: 0.38,
+            stagger: 0.045,
+          }, 0.28);
+      } else if (state === 2 && nextState === 1) {
+        tl.to(sectionItems, { opacity: 0, y: 18, duration: 0.28, stagger: 0.025 }, 0)
+          .to(fanEl, { x: 0, duration: 0.65 }, 0)
+          .to(cardEls, {
+            x: 0,
+            y: (i) => i === 2 ? 0 : 34,
+            rotation: 0,
+            opacity: (i) => i === 2 ? 1 : 0,
+            scale: (i) => i === 2 ? 1.04 : 0.72,
+            duration: 0.65,
+            stagger: { each: 0.05, from: 'edges' },
+          }, 0)
+          .set(section, { opacity: 0 });
+      } else if (state === 1 && nextState === 0) {
+        tl.to(fanEl, { x: 0, y: 0, duration: 0.65 }, 0)
+          .to(cardEls, {
+            x: (i) => positions[i].x,
+            y: (i) => positions[i].y,
+            rotation: (i) => positions[i].rotation,
+            opacity: 1,
+            scale: 1,
+            duration: 0.65,
+            stagger: { each: 0.05, from: 'center' },
+            transformOrigin: 'center center',
+          }, 0)
+          .to(['.hero-content', '.scroll-cue', '.hero-decoration'], { opacity: 1, y: 0, duration: 0.42 }, 0.26);
+      }
+    };
+
     const ctx = gsap.context(() => {
       if (reduced) {
         gsap.set(['.hero-line', '.hero-description', '.hero-cta', '.hero-decoration'], { opacity: 1, y: 0 });
-        visible();
+        gsap.set(story, { height: 'auto', overflow: 'visible' });
+        gsap.set(hero, { position: 'relative' });
+        gsap.set(section, { position: 'relative', minHeight: '100svh', opacity: 1 });
+        gsap.set(sectionItems, { opacity: 1, y: 0 });
+        cardEls.forEach((el, i) => gsap.set(el, { ...fanPositions()[i], opacity: 1, scale: 1 }));
         readyRef.current = true;
         return;
       }
+
+      gsap.set(section, { opacity: 0 });
+      gsap.set(sectionItems, { opacity: 0, y: 22 });
       const initialDrop = window.innerHeight * (isMobile() ? 0.7 : 0.85);
       gsap.set(cardEls, { x: 0, y: initialDrop, opacity: 0, rotation: -8, scale: 0.85, transformOrigin: '50% 85%' });
       gsap.set(['.hero-line', '.hero-description', '.hero-cta', '.hero-decoration'], { opacity: 0, y: 25 });
       const tl = gsap.timeline({ defaults: { ease: 'power3.out' }, onComplete: () => {
         readyRef.current = true;
-        floatEls.forEach((el, i) => gsap.to(el, { y: i % 2 ? -5 : 5, duration: 2.8 + i * 0.27, ease: 'sine.inOut', yoyo: true, repeat: -1, delay: i * 0.14 }));
+        introReady = true;
+        startFloatMotion();
+        enableObserver();
         ScrollTrigger.refresh();
       } });
       tl.addLabel('initial').to({}, { duration: 0.3 });
@@ -77,36 +294,83 @@ export default function Hero() {
       const order = [1, 3, 0, 4];
       tl.addLabel('fanSpread', 'description+=0.35');
       order.forEach((index, n) => {
-        tl.to(cardEls[index], { ...positions()[index], opacity: 1, scale: 1, duration: 1.05, ease: 'power3.out' }, `fanSpread+=${n * 0.13}`);
+        tl.to(cardEls[index], { ...fanPositions()[index], opacity: 1, scale: 1, duration: 1.05, ease: 'power3.out' }, `fanSpread+=${n * 0.13}`);
       });
       tl.addLabel('decorations', 'fanSpread+=1.05').to('.hero-decoration', { y: 0, opacity: 1, duration: 0.55, stagger: 0.11 }, 'decorations');
       tl.addLabel('completed');
-      const scroll = gsap.timeline({ paused: true, defaults: { ease: 'none' }, scrollTrigger: { trigger: story, start: 'top top', end: '+=260%', scrub: 1, pin: true, invalidateOnRefresh: true, onUpdate: (self) => { story.classList.toggle('is-scrolling', self.progress > 0.01); floatEls.forEach((el) => { if (self.progress > 0.01) gsap.set(el, { y: 0 }); }); } } });
-      scroll.to('.hero-content, .scroll-cue', { opacity: 0, duration: 0.2 }, 0);
-      scroll.fromTo('.hero-decoration', { opacity: 1 }, { opacity: 0, duration: 0.2, immediateRender: false }, 0);
-      cardEls.forEach((el, i) => scroll.fromTo(el, { x: () => positions()[i].x, y: () => positions()[i].y, rotation: () => positions()[i].rotation }, { x: 0, y: -Math.abs(i - 2) * 5, rotation: 0, duration: 0.28, immediateRender: false }, 0.06));
-      scroll.to(fanEl, { y: () => window.innerHeight * 0.38 - fanEl.getBoundingClientRect().top, duration: 0.28 }, 0.34);
-      scroll.to(section, { opacity: 1, duration: 0.28 }, 0.36);
-      scroll.to(fanEl, { x: () => isMobile() ? 0 : window.innerWidth * 0.22, duration: 0.18 }, 0.64);
-      cardEls.forEach((el, i) => scroll.to(el, { x: () => (i - 2) * (isMobile() ? 55 : 105), y: () => Math.abs(i - 2) * 18, rotation: (i - 2) * 7, opacity: i === 0 || i === 2 || i === 4 ? 1 : 0, duration: 0.16 }, 0.82));
-      scroll.fromTo('.section-two-content > *', { opacity: 0, y: 25 }, { opacity: 1, y: 0, stagger: 0.03, duration: 0.09 }, 0.93);
-      scroll.fromTo(sectionThreeTransition, {
-        y: 0,
-      }, {
-        // Release with the image frame's top edge at mid-viewport. The image
-        // offset includes Section 3's existing heading and spacing, so that
-        // content naturally enters before the visual reaches the threshold.
-        y: () => {
-          const imageFrame = sectionThreeRef.current?.querySelector<HTMLElement>('.s3-video-frame');
-          const imageOffset = imageFrame
-            ? imageFrame.getBoundingClientRect().top - sectionThreeTransition.getBoundingClientRect().top
-            : 0;
-          return -(window.innerHeight * 0.5 + Math.max(0, imageOffset));
+
+      observer = Observer.create({
+        target: window,
+        type: 'wheel,touch',
+        preventDefault: true,
+        allowClicks: true,
+        lockAxis: true,
+        tolerance: 28,
+        wheelSpeed: -1,
+        onUp: () => {
+          if (transitioning) return;
+          if (state < 2) transitionTo(state + 1);
+          else releasePin(1);
         },
-        duration: 0.2,
-        immediateRender: false,
-      }, 0.8);
-      const onResize = () => { if (readyRef.current) visible(); };
+        onDown: () => {
+          if (transitioning) return;
+          if (state > 0) transitionTo(state - 1);
+          else releasePin(-1);
+        },
+      });
+      observer.disable();
+
+      pinTrigger = ScrollTrigger.create({
+        trigger: story,
+        start: 'top top',
+        end: '+=100%',
+        pin: true,
+        anticipatePin: 1,
+        onEnter: () => {
+          pinActive = true;
+          enableObserver();
+        },
+        onEnterBack: () => {
+          pinActive = true;
+          parallaxReleased = false;
+          state = 2;
+          setImmediateState(2);
+          stopFloatMotion();
+          transitioning = true;
+          enableObserver();
+          activeTimeline?.kill();
+          activeTimeline = gsap.timeline({
+            defaults: { ease: 'power3.inOut', overwrite: 'auto' },
+            onComplete: () => {
+              transitioning = false;
+              enableObserver();
+            },
+          }).to(sectionThreeTransition, {
+            y: 0,
+            marginBottom: 0,
+            duration: 0.7,
+          });
+        },
+        onLeave: () => {
+          pinActive = false;
+          observer?.disable();
+        },
+        onLeaveBack: () => {
+          pinActive = false;
+          observer?.disable();
+        },
+      });
+
+      const onResize = () => {
+        if (!transitioning && introReady) setImmediateState(state);
+        ScrollTrigger.refresh();
+        if (parallaxReleased) {
+          gsap.set(sectionThreeTransition, {
+            y: -sectionThreeOffset(),
+            marginBottom: -sectionThreeOffset(),
+          });
+        }
+      };
       window.addEventListener('resize', onResize);
       return () => window.removeEventListener('resize', onResize);
     }, hero);
@@ -129,16 +393,19 @@ export default function Hero() {
       gsap.set(videoWrap, { opacity: 0, y: 120, scale: 0.94, transformOrigin: 'center bottom' });
       gsap.set(eyebrow, { opacity: 0, y: 18 });
       gsap.set(titleRow, { opacity: 0, y: 40 });
+      revealSectionThree = () => {
+        if (sectionThreeRevealed) return;
+        sectionThreeRevealed = true;
+        const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
+        tl.to(videoWrap, { opacity: 1, y: 0, scale: 1, duration: 1.05, ease: 'power2.out' });
+        tl.to(eyebrow, { opacity: 1, y: 0, duration: 0.5 }, '-=0.68');
+        tl.to(titleRow, { opacity: 1, y: 0, duration: 0.72 }, '-=0.42');
+      };
       ScrollTrigger.create({
         trigger: s3,
         start: 'top 78%',
         once: true,
-        onEnter: () => {
-          const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
-          tl.to(videoWrap, { opacity: 1, y: 0, scale: 1, duration: 1.05, ease: 'power2.out' });
-          tl.to(eyebrow, { opacity: 1, y: 0, duration: 0.5 }, '-=0.55');
-          tl.to(titleRow, { opacity: 1, y: 0, duration: 0.72 }, '-=0.35');
-        },
+        onEnter: revealSectionThree,
       });
 
       // subtle parallax on scroll
@@ -167,7 +434,18 @@ export default function Hero() {
       });
     });
 
-    return () => { ctx.revert(); ctxThree.revert(); ctxTrusted.revert(); readyRef.current = false; };
+    return () => {
+      window.removeEventListener('pageshow', resetScrollToStart);
+      window.history.scrollRestoration = previousScrollRestoration;
+      observer?.kill();
+      pinTrigger?.kill();
+      activeTimeline?.kill();
+      stopFloatMotion();
+      ctx.revert();
+      ctxThree.revert();
+      ctxTrusted.revert();
+      readyRef.current = false;
+    };
   }, []);
 
   const onEnter = (index: number) => {

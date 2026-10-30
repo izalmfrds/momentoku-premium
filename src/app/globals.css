@@ -286,6 +286,7 @@ h1 {
   top: 82px;
   width: 1px;
   height: 1px;
+  will-change: transform;
 }
 .fan-card {
   position: absolute;
